@@ -1,0 +1,6 @@
+classes=437
+train=data/gqa/attribute_coco_format_data/train_val_images.txt
+valid=data/gqa/attribute_coco_format_data/train_val_images.txt
+names=data/gqa/attribute_coco_format_data/category_names.txt
+backup=backup/
+eval=coco
