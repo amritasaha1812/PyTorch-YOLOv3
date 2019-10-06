@@ -129,6 +129,16 @@ $ python3 train.py --model_def config/yolov3-custom.cfg --data_config config/cus
 
 Add `--pretrained_weights weights/darknet53.conv.74` to train using a backend pretrained on ImageNet.
 
+### Train on GQA datas
+To train on the GQA data:
+* mkdir data/gqa
+* Download the zip from https://drive.google.com/file/d/1zJH_qwoHAVMFSRaZMYrfoY7xNOgSvowo/view?usp=sharing and unzip this and rename the folder to `attribute_coco_format_data` and place it inside inside data/gqa
+* Copy the images folder of gqa inside the unzipped `attribute_coco_format_data` folder
+* To train on the gqa dataset run:
+
+```
+$ python3 -W ignore train.py --data_config config/gqa.data --model_def config/yolov3-custom.cfg
+```
 
 ## Credit
 
