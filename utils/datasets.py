@@ -126,10 +126,7 @@ class ListDataset(Dataset):
                boxes[:, 4] *= h_
             targets = torch.zeros((len(boxes), 6))
             targets[:, 1:] = boxes
-            if any([x>=1 for x in list(torch.max(targets, 0)[0])[2:4]]):
-               print ('targets ', list(torch.max(targets, 0)[0])[2:])
-               raise Exception('Something wrong in the targets')
-            #print ('targets ', list(torch.max(targets, 0)[0])[2:])
+               
         # Apply augmentations
         if self.augment:
             if np.random.random() < 0.5:
