@@ -141,6 +141,7 @@ class YOLOLayer(nn.Module):
         self.img_dim = img_dim
         num_samples = x.size(0)
         grid_size = x.size(2)
+        #print ('in models: x size ', x.size())
         prediction = (
             x.view(num_samples, self.num_anchors, self.num_classes + 5, grid_size, grid_size)
             .permute(0, 1, 3, 4, 2)
@@ -178,6 +179,9 @@ class YOLOLayer(nn.Module):
         if targets is None:
             return output, 0
         else:
+            #print ('In models: pred_boxes size ', pred_boxes.size())
+            #print ('In models: targets size ', targets.size())
+            #print ('In models: anchors size ', self.scaled_anchors.size())
             iou_scores, class_mask, obj_mask, noobj_mask, tx, ty, tw, th, tcls, tconf = build_targets(
                 pred_boxes=pred_boxes,
                 pred_cls=pred_cls,
@@ -185,12 +189,24 @@ class YOLOLayer(nn.Module):
                 anchors=self.scaled_anchors,
                 ignore_thres=self.ignore_thres,
             )
-
+            #print (' obj_mask', obj_mask.size(), 'x.shape ', x.size(), 'tx.shape', tx.size())
             # Loss : Mask outputs to ignore non-existing objects (except with conf. loss)
-            loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
+            #try:
+            xmask = x[obj_mask]
+            txmask = tx[obj_mask]
+            loss_x = self.mse_loss(xmask, txmask)
             loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
             loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
             loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
+            #except:
+            #   obj_mask = obj_mask.cpu.numpy()
+            #   np.save('obj_mask.npy', obj_mask)
+            #   x = x.cpu.numpy()
+            #   np.save('x.npy', x)
+            #   print ('type of obj_mask ', type(obj_mask))
+            #   print ('obj_mask ', obj_mask[0, 0])
+            #   print ('x ', x)
+            #   print ('tx ', tx)
             loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
             loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
             loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj

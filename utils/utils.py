@@ -271,6 +271,7 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     nA = pred_boxes.size(1)
     nC = pred_cls.size(-1)
     nG = pred_boxes.size(2)
+    #print ('pred boxes shape ', pred_boxes.shape)
     # Output tensors
     obj_mask = ByteTensor(nB, nA, nG, nG).fill_(0)
     noobj_mask = ByteTensor(nB, nA, nG, nG).fill_(1)
@@ -284,6 +285,10 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
 
     # Convert to position relative to box
     target_boxes = target[:, 2:6] * nG
+    target_boxes_shape = list(target_boxes.size())
+    #if target_boxes_shape[0]==0 or target_boxes_shape[1]<4:
+    #    print ('target_boxes_shape ', target_boxes_shape)
+    #    raise Exception(' Something wrong with target box shape ')
     gxy = target_boxes[:, :2]
     gwh = target_boxes[:, 2:]
     # Get anchors with best iou
@@ -309,6 +314,8 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     tw[b, best_n, gj, gi] = torch.log(gw / anchors[best_n][:, 0] + 1e-16)
     th[b, best_n, gj, gi] = torch.log(gh / anchors[best_n][:, 1] + 1e-16)
     # One-hot encoding of label
+    #print ('b, best_n, gj, gi, target_labels ', b, best_n, gj, gi, target_labels)
+    
     tcls[b, best_n, gj, gi, target_labels] = 1
     # Compute label correctness and iou at best anchor
     class_mask[b, best_n, gj, gi] = (pred_cls[b, best_n, gj, gi].argmax(-1) == target_labels).float()

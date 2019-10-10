@@ -30,12 +30,14 @@ if __name__ == "__main__":
     parser.add_argument("--model_def", type=str, default="config/yolov3.cfg", help="path to model definition file")
     parser.add_argument("--data_config", type=str, default="config/coco.data", help="path to data config file")
     parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
-    parser.add_argument("--n_cpu", type=int, default=4, help="number of cpu threads to use during batch generation")
+    parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
     parser.add_argument("--checkpoint_interval", type=int, default=1000, help="interval between saving model weights")
     parser.add_argument("--evaluation_interval", type=int, default=9000, help="interval evaluations on validation set")
     parser.add_argument("--compute_map", default=False, help="if True computes mAP every tenth batch")
     parser.add_argument("--multiscale_training", default=True, help="allow for multi-scale training")
+    parser.add_argument("--dataset_name", type=str, choices=["coco", "gqa"], help="type of dataset")
+    parser.add_argument("--start_index", type=int, help="start index")
     opt = parser.parse_args()
     print(opt)
 
@@ -44,8 +46,11 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print ('device ', device)
     os.makedirs("output", exist_ok=True)
-    os.makedirs("checkpoints", exist_ok=True)
-
+    os.makedirs("checkpoints/"+opt.dataset_name, exist_ok=True)
+    if opt.start_index !=0:
+        shuffle = False
+    else:
+        shuffle = True
     # Get data configuration
     data_config = parse_data_config(opt.data_config)
     train_path = data_config["train"]
@@ -64,11 +69,11 @@ if __name__ == "__main__":
             model.load_darknet_weights(opt.pretrained_weights)
 
     # Get dataloader
-    dataset = ListDataset(train_path, augment=True, multiscale=opt.multiscale_training)
+    dataset = ListDataset(train_path, opt.batch_size, start_index=opt.start_index, augment=True, multiscale=opt.multiscale_training)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=opt.batch_size,
-        shuffle=True,
+        shuffle=shuffle,
         num_workers=opt.n_cpu,
         pin_memory=True,
         collate_fn=dataset.collate_fn,
@@ -97,6 +102,8 @@ if __name__ == "__main__":
         model.train()
         start_time = time.time()
         for batch_i, (_, imgs, targets) in enumerate(dataloader):
+            if imgs is None:
+                continue
             batches_done = len(dataloader) * epoch + batch_i
             imgs = Variable(imgs.to(device))
             targets = Variable(targets.to(device), requires_grad=False)
@@ -174,4 +181,4 @@ if __name__ == "__main__":
                 print(f"---- mAP {AP.mean()}")
 
             if batches_done % opt.checkpoint_interval == 0 and batches_done>0:
-                torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_%d.pth" % batches_done)
+                torch.save(model.state_dict(), f"checkpoints/"+opt.dataset_name+"/yolov3_ckpt_%d.pth" % batches_done)
