@@ -132,7 +132,7 @@ Add `--pretrained_weights weights/darknet53.conv.74` to train using a backend pr
 ## Train on GQA Dataset
 To train on the GQA data, follow the steps:
 * mkdir data/gqa
-* Download the zip from https://drive.google.com/file/d/1SmNfOX2mWAPfn_1g4qB0lbfyS2b0ejQd/view?usp=sharing and unzip this and rename the folder to `attribute_coco_format_data` and place it inside inside data/gqa
+* Download the zip from https://drive.google.com/file/d/1qoydGfpIs_abdhp-BDQtRv6B3RiSqU8I/view?usp=sharing and unzip this inside inside data/gqa
 * Copy the images folder of gqa inside the unzipped `attribute_coco_format_data` folder
 * cd data/gqa/attribute_coco_format_data
 * run ./get_images.sh
