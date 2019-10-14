@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import math
 
+
 def create_modules(module_defs, loss_type):
     """
     Constructs module list of layer blocks from module configuration in module_defs
@@ -112,10 +113,12 @@ class YOLOLayer(nn.Module):
         self.num_anchors = len(anchors)
         self.loss_type = loss_type
         self.num_classes = num_classes
+        self.class_hierarchy = class_hierarchy
         self.ignore_thres = 0.5
         self.mse_loss = nn.MSELoss()
         self.bce_loss = nn.BCELoss()
         self.ce_loss = nn.CrossEntropyLoss()
+        self.logsoftmax = nn.LogSoftmax(dim=-1)
         self.obj_scale = 1
         self.noobj_scale = 100
         self.metrics = {}
@@ -160,6 +163,8 @@ class YOLOLayer(nn.Module):
         pred_cls = prediction[..., 5:]  # Cls pred.
         if self.loss_type=="bce":
             pred_cls = torch.sigmoid(pred_cls)
+        elif self.loss_type=="hierarchical_loss":
+            pred_cls = self.logsoftmax(pred_cls)
         # If grid size does not match current we compute new offsets
         if grid_size != self.grid_size:
             self.compute_grid_offsets(grid_size, cuda=x.is_cuda)
@@ -206,6 +211,12 @@ class YOLOLayer(nn.Module):
                    loss_cls = self.bce_loss(pred_cls[obj_mask],  tcls[obj_mask])
                 elif self.loss_type=="ce":
                    loss_cls = self.ce_loss(pred_cls[obj_mask],  torch.argmax(tcls, 4)[obj_mask])
+                elif self.loss_type=="hierarchical_ce":
+                    pred_cls_obj_mask = pred_cls[obj_mask]
+                    pred_cls_obj_mask_level2 = pred_cls_obj_mask[..., self.class_hierarchy[:,0]]
+                    pred_cls_obj_mask_level1 = pred_cls_obj_mask[..., self.class_hierarchy[:,1]]
+                    pred_cls_obj_mask = pred_cls_obj_mask_level2 + pred_cls_obj_mask_level1
+                    loss_cls = F.nll_loss(pred_cls_obj_mask, torch.argmax(tcls, 4)[obj_mask])
                 total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
                 if math.isnan(total_loss):
                    return None, None
@@ -320,49 +331,31 @@ class Darknet(nn.Module):
                     bn_layer = module[1]
                     num_b = bn_layer.bias.numel()  # Number of biases
                     # Bias
-                    try:
-                        bn_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.bias)
-                        bn_layer.bias.data.copy_(bn_b)
-                    except:
-                        print ('Cannot use BN bias from pretrained weights')
+                    bn_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.bias)
+                    bn_layer.bias.data.copy_(bn_b)
                     ptr += num_b
                     # Weight
-                    try:
-                        bn_w = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.weight)
-                        bn_layer.weight.data.copy_(bn_w)
-                    except:
-                        print ('Cannot use BN weight from pretrained weights')
+                    bn_w = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.weight)
+                    bn_layer.weight.data.copy_(bn_w)
                     ptr += num_b
                     # Running Mean
-                    try:
-                        bn_rm = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_mean)
-                        bn_layer.running_mean.data.copy_(bn_rm)
-                    except:
-                        print ('Cannot use BN running mean weights from pretrained weights')
+                    bn_rm = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_mean)
+                    bn_layer.running_mean.data.copy_(bn_rm)
                     ptr += num_b
                     # Running Var
-                    try:
-                        bn_rv = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_var)
-                        bn_layer.running_var.data.copy_(bn_rv)
-                    except:
-                        print ('Cannot use BN running variance weights from pretrained weights')
+                    bn_rv = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_var)
+                    bn_layer.running_var.data.copy_(bn_rv)
                     ptr += num_b
                 else:
                     # Load conv. bias
                     num_b = conv_layer.bias.numel()
-                    try:
-                        conv_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(conv_layer.bias)
-                        conv_layer.bias.data.copy_(conv_b)
-                    except:
-                        print ('Cannot use conv layer bias from pretrained model')
+                    conv_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(conv_layer.bias)
+                    conv_layer.bias.data.copy_(conv_b)
                     ptr += num_b
                 # Load conv. weights
                 num_w = conv_layer.weight.numel()
-                try:
-                    conv_w = torch.from_numpy(weights[ptr : ptr + num_w]).view_as(conv_layer.weight)
-                    conv_layer.weight.data.copy_(conv_w)
-                except:
-                    print ('Cannot use conv layer weight from pretrained model')
+                conv_w = torch.from_numpy(weights[ptr : ptr + num_w]).view_as(conv_layer.weight)
+                conv_layer.weight.data.copy_(conv_w)
                 ptr += num_w
 
     def save_darknet_weights(self, path, cutoff=-1):
