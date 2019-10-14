@@ -38,8 +38,9 @@ if __name__ == "__main__":
     parser.add_argument("--multiscale_training", default=True, help="allow for multi-scale training")
     parser.add_argument("--dataset_name", type=str, help="type of dataset")
     parser.add_argument("--start_index", type=int, help="start index")
-    parser.add_argument("--loss_type", type=str, choices=["bce", "ce"], help="type of cls loss")
+    parser.add_argument("--loss_type", type=str, choices=["bce", "ce", "hierarchical_loss"], help="type of cls loss")
     opt = parser.parse_args()
+    
     print(opt)
 
     logger = Logger("logs")
@@ -57,9 +58,15 @@ if __name__ == "__main__":
     train_path = data_config["train"]
     valid_path = data_config["valid"]
     class_names = load_classes(data_config["names"])
-
+    
+    
+    if ("class_hierarchy" not in data_config or not os.path.exists(class_hierarchy)) and opt.loss_type=="hierarchical_loss":
+        raise Exception("class hierarchy should be provided for hierarchical loss")
+    if "class_hierarchy" in data_config:
+        class_hierarchy = data_config["class_hierarchy"]    
+        
     # Initiate model
-    model = Darknet(opt.model_def, opt.loss_type).to(device)
+    model = Darknet(opt.model_def, opt.loss_type, class_hierarchy=class_hierarchy).to(device)
     model.apply(weights_init_normal)
 
     # If specified we start from checkpoint

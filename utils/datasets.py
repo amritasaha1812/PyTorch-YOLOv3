@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image
 import torch
 import torch.nn.functional as F
+import pickle as pkl
 
 from utils.augmentations import horisontal_flip
 from torch.utils.data import Dataset
@@ -57,7 +58,7 @@ class ImageFolder(Dataset):
 
 
 class ListDataset(Dataset):
-    def __init__(self, list_path, batch_size, start_index=0, img_size=416, augment=True, multiscale=True, normalized_labels=True):
+    def __init__(self, list_path, batch_size, start_index=0, img_size=416, augment=True, multiscale=True, normalized_labels=True, hierarchy_file=None):
         with open(list_path, "r") as file:
             self.img_files = file.readlines()
 
@@ -65,6 +66,8 @@ class ListDataset(Dataset):
             path.replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt")
             for path in self.img_files
         ]
+        if hierarchy_file:
+            self.hierarchy = pkl.load(open(hierarchy_file, 'rb'))
         self.img_size = img_size
         self.max_objects = 100
         self.augment = augment

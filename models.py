@@ -107,7 +107,7 @@ class EmptyLayer(nn.Module):
 class YOLOLayer(nn.Module):
     """Detection layer"""
 
-    def __init__(self, anchors, num_classes, loss_type, img_dim=416):
+    def __init__(self, anchors, num_classes, loss_type, img_dim=416, class_hierarchy=None):
         super(YOLOLayer, self).__init__()
         self.anchors = anchors
         self.num_anchors = len(anchors)
