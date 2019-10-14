@@ -11,9 +11,9 @@ from utils.utils import build_targets, to_cpu, non_max_suppression
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import math
 
-
-def create_modules(module_defs):
+def create_modules(module_defs, loss_type):
     """
     Constructs module list of layer blocks from module configuration in module_defs
     """
@@ -74,7 +74,7 @@ def create_modules(module_defs):
             num_classes = int(module_def["classes"])
             img_size = int(hyperparams["height"])
             # Define detection layer
-            yolo_layer = YOLOLayer(anchors, num_classes, img_size)
+            yolo_layer = YOLOLayer(anchors, num_classes, loss_type, img_size)
             modules.add_module(f"yolo_{module_i}", yolo_layer)
         # Register module list and number of output filters
         module_list.append(modules)
@@ -106,14 +106,16 @@ class EmptyLayer(nn.Module):
 class YOLOLayer(nn.Module):
     """Detection layer"""
 
-    def __init__(self, anchors, num_classes, img_dim=416):
+    def __init__(self, anchors, num_classes, loss_type, img_dim=416):
         super(YOLOLayer, self).__init__()
         self.anchors = anchors
         self.num_anchors = len(anchors)
+        self.loss_type = loss_type
         self.num_classes = num_classes
         self.ignore_thres = 0.5
         self.mse_loss = nn.MSELoss()
         self.bce_loss = nn.BCELoss()
+        self.ce_loss = nn.CrossEntropyLoss()
         self.obj_scale = 1
         self.noobj_scale = 100
         self.metrics = {}
@@ -141,6 +143,7 @@ class YOLOLayer(nn.Module):
         self.img_dim = img_dim
         num_samples = x.size(0)
         grid_size = x.size(2)
+        
         #print ('in models: x size ', x.size())
         prediction = (
             x.view(num_samples, self.num_anchors, self.num_classes + 5, grid_size, grid_size)
@@ -154,8 +157,9 @@ class YOLOLayer(nn.Module):
         w = prediction[..., 2]  # Width
         h = prediction[..., 3]  # Height
         pred_conf = torch.sigmoid(prediction[..., 4])  # Conf
-        pred_cls = torch.sigmoid(prediction[..., 5:])  # Cls pred.
-
+        pred_cls = prediction[..., 5:]  # Cls pred.
+        if self.loss_type=="bce":
+            pred_cls = torch.sigmoid(pred_cls)
         # If grid size does not match current we compute new offsets
         if grid_size != self.grid_size:
             self.compute_grid_offsets(grid_size, cuda=x.is_cuda)
@@ -179,9 +183,6 @@ class YOLOLayer(nn.Module):
         if targets is None:
             return output, 0
         else:
-            #print ('In models: pred_boxes size ', pred_boxes.size())
-            #print ('In models: targets size ', targets.size())
-            #print ('In models: anchors size ', self.scaled_anchors.size())
             iou_scores, class_mask, obj_mask, noobj_mask, tx, ty, tw, th, tcls, tconf = build_targets(
                 pred_boxes=pred_boxes,
                 pred_cls=pred_cls,
@@ -189,31 +190,30 @@ class YOLOLayer(nn.Module):
                 anchors=self.scaled_anchors,
                 ignore_thres=self.ignore_thres,
             )
-            #print (' obj_mask', obj_mask.size(), 'x.shape ', x.size(), 'tx.shape', tx.size())
+            if iou_scores is None or class_mask is None or obj_mask is None or noobj_mask is None or tx is None or ty is None or tw is None or th is None or tcls is None:
+                print ('Exception in build targets')
+                return None, None
             # Loss : Mask outputs to ignore non-existing objects (except with conf. loss)
-            #try:
-            xmask = x[obj_mask]
-            txmask = tx[obj_mask]
-            loss_x = self.mse_loss(xmask, txmask)
-            loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
-            loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
-            loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
-            #except:
-            #   obj_mask = obj_mask.cpu.numpy()
-            #   np.save('obj_mask.npy', obj_mask)
-            #   x = x.cpu.numpy()
-            #   np.save('x.npy', x)
-            #   print ('type of obj_mask ', type(obj_mask))
-            #   print ('obj_mask ', obj_mask[0, 0])
-            #   print ('x ', x)
-            #   print ('tx ', tx)
-            loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
-            loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
-            loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
-            loss_cls = self.bce_loss(pred_cls[obj_mask], tcls[obj_mask])
-            total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
-
+            try:
+                loss_x = self.mse_loss(x[obj_mask], tx[obj_mask])
+                loss_y = self.mse_loss(y[obj_mask], ty[obj_mask])
+                loss_w = self.mse_loss(w[obj_mask], tw[obj_mask])
+                loss_h = self.mse_loss(h[obj_mask], th[obj_mask])
+                loss_conf_obj = self.bce_loss(pred_conf[obj_mask], tconf[obj_mask])
+                loss_conf_noobj = self.bce_loss(pred_conf[noobj_mask], tconf[noobj_mask])
+                loss_conf = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
+                if self.loss_type=="bce":
+                   loss_cls = self.bce_loss(pred_cls[obj_mask],  tcls[obj_mask])
+                elif self.loss_type=="ce":
+                   loss_cls = self.ce_loss(pred_cls[obj_mask],  torch.argmax(tcls, 4)[obj_mask])
+                total_loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
+                if math.isnan(total_loss):
+                   return None, None
+            except:
+                print ('Exception in loss computation')
+                return None, None
             # Metrics
+            #print ('class_mask[obj_mask] ', class_mask[obj_mask])
             cls_acc = 100 * class_mask[obj_mask].mean()
             conf_obj = pred_conf[obj_mask].mean()
             conf_noobj = pred_conf[noobj_mask].mean()
@@ -248,10 +248,11 @@ class YOLOLayer(nn.Module):
 class Darknet(nn.Module):
     """YOLOv3 object detection model"""
 
-    def __init__(self, config_path, img_size=416):
+    def __init__(self, config_path, loss_type, img_size=416):
         super(Darknet, self).__init__()
         self.module_defs = parse_model_config(config_path)
-        self.hyperparams, self.module_list = create_modules(self.module_defs)
+        self.loss_type = loss_type
+        self.hyperparams, self.module_list = create_modules(self.module_defs, self.loss_type)
         self.yolo_layers = [layer[0] for layer in self.module_list if hasattr(layer[0], "metrics")]
         self.img_size = img_size
         self.seen = 0
@@ -263,14 +264,30 @@ class Darknet(nn.Module):
         layer_outputs, yolo_outputs = [], []
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             if module_def["type"] in ["convolutional", "upsample", "maxpool"]:
-                x = module(x)
+                try:
+                    x = module(x)
+                except:
+                    print ('Exception in convolutional/upsample/maxpool model def')
+                    if targets is None:
+                       return None
+                    else:
+                       return None, None
             elif module_def["type"] == "route":
-                x = torch.cat([layer_outputs[int(layer_i)] for layer_i in module_def["layers"].split(",")], 1)
+                try:
+                    x = torch.cat([layer_outputs[int(layer_i)] for layer_i in module_def["layers"].split(",")], 1)
+                except:
+                    print ('Exception in route module def')
+                    if targets is None:
+                       return None
+                    else:
+                       return None, None
             elif module_def["type"] == "shortcut":
                 layer_i = int(module_def["from"])
                 x = layer_outputs[-1] + layer_outputs[layer_i]
             elif module_def["type"] == "yolo":
                 x, layer_loss = module[0](x, targets, img_dim)
+                if x is None or layer_loss is None:
+                   continue
                 loss += layer_loss
                 yolo_outputs.append(x)
             layer_outputs.append(x)
@@ -303,31 +320,49 @@ class Darknet(nn.Module):
                     bn_layer = module[1]
                     num_b = bn_layer.bias.numel()  # Number of biases
                     # Bias
-                    bn_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.bias)
-                    bn_layer.bias.data.copy_(bn_b)
+                    try:
+                        bn_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.bias)
+                        bn_layer.bias.data.copy_(bn_b)
+                    except:
+                        print ('Cannot use BN bias from pretrained weights')
                     ptr += num_b
                     # Weight
-                    bn_w = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.weight)
-                    bn_layer.weight.data.copy_(bn_w)
+                    try:
+                        bn_w = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.weight)
+                        bn_layer.weight.data.copy_(bn_w)
+                    except:
+                        print ('Cannot use BN weight from pretrained weights')
                     ptr += num_b
                     # Running Mean
-                    bn_rm = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_mean)
-                    bn_layer.running_mean.data.copy_(bn_rm)
+                    try:
+                        bn_rm = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_mean)
+                        bn_layer.running_mean.data.copy_(bn_rm)
+                    except:
+                        print ('Cannot use BN running mean weights from pretrained weights')
                     ptr += num_b
                     # Running Var
-                    bn_rv = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_var)
-                    bn_layer.running_var.data.copy_(bn_rv)
+                    try:
+                        bn_rv = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_var)
+                        bn_layer.running_var.data.copy_(bn_rv)
+                    except:
+                        print ('Cannot use BN running variance weights from pretrained weights')
                     ptr += num_b
                 else:
                     # Load conv. bias
                     num_b = conv_layer.bias.numel()
-                    conv_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(conv_layer.bias)
-                    conv_layer.bias.data.copy_(conv_b)
+                    try:
+                        conv_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(conv_layer.bias)
+                        conv_layer.bias.data.copy_(conv_b)
+                    except:
+                        print ('Cannot use conv layer bias from pretrained model')
                     ptr += num_b
                 # Load conv. weights
                 num_w = conv_layer.weight.numel()
-                conv_w = torch.from_numpy(weights[ptr : ptr + num_w]).view_as(conv_layer.weight)
-                conv_layer.weight.data.copy_(conv_w)
+                try:
+                    conv_w = torch.from_numpy(weights[ptr : ptr + num_w]).view_as(conv_layer.weight)
+                    conv_layer.weight.data.copy_(conv_w)
+                except:
+                    print ('Cannot use conv layer weight from pretrained model')
                 ptr += num_w
 
     def save_darknet_weights(self, path, cutoff=-1):

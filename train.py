@@ -36,8 +36,9 @@ if __name__ == "__main__":
     parser.add_argument("--evaluation_interval", type=int, default=9000, help="interval evaluations on validation set")
     parser.add_argument("--compute_map", default=False, help="if True computes mAP every tenth batch")
     parser.add_argument("--multiscale_training", default=True, help="allow for multi-scale training")
-    parser.add_argument("--dataset_name", type=str, choices=["coco", "gqa"], help="type of dataset")
+    parser.add_argument("--dataset_name", type=str, help="type of dataset")
     parser.add_argument("--start_index", type=int, help="start index")
+    parser.add_argument("--loss_type", type=str, choices=["bce", "ce"], help="type of cls loss")
     opt = parser.parse_args()
     print(opt)
 
@@ -58,7 +59,7 @@ if __name__ == "__main__":
     class_names = load_classes(data_config["names"])
 
     # Initiate model
-    model = Darknet(opt.model_def).to(device)
+    model = Darknet(opt.model_def, opt.loss_type).to(device)
     model.apply(weights_init_normal)
 
     # If specified we start from checkpoint
@@ -105,10 +106,15 @@ if __name__ == "__main__":
             if imgs is None:
                 continue
             batches_done = len(dataloader) * epoch + batch_i
+            #try:
             imgs = Variable(imgs.to(device))
             targets = Variable(targets.to(device), requires_grad=False)
-
+            #except:
+            #    print ('Exception in imgs. targets')
+            #    continue
             loss, outputs = model(imgs, targets)
+            if loss is None or outputs is None:
+                continue
             loss.backward()
 
             if batches_done % opt.gradient_accumulations:
