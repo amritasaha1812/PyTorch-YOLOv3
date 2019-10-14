@@ -60,7 +60,7 @@ if __name__ == "__main__":
     class_names = load_classes(data_config["names"])
     
     
-    if ("class_hierarchy" not in data_config or not os.path.exists(class_hierarchy)) and opt.loss_type=="hierarchical_loss":
+    if ("class_hierarchy" not in data_config or not os.path.exists("class_hierarchy")) and opt.loss_type=="hierarchical_loss":
         raise Exception("class hierarchy should be provided for hierarchical loss")
     if "class_hierarchy" in data_config:
         class_hierarchy = data_config["class_hierarchy"]    
